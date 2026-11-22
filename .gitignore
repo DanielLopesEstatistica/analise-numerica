@@ -1,0 +1,20 @@
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Imagens de trabalho (podem ser pesadas)
+*.rar
+*.jpg
+*.jpeg
+*.png
+!docs/preview.png
+!**/figuras_publicaveis/**
+
+secrets/*
+!secrets/README.md
+!secrets/.gitignore
+!secrets/**/*.example
+.env
+.Renviron
+rsconnect/

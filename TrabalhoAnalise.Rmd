@@ -1,0 +1,261 @@
+---
+title: "Analise"
+output: html_document
+date: "2023-05-25"
+---
+
+
+```{r}
+library(foreach)
+library(doParallel)
+library(jpeg)
+
+get_comp_bw <- function(name) {
+  # Criei uma função para o output do multithreading ser uma lista facil de trabalhar
+  my_list = function(x,y){
+    new_list = list()
+    if(x |> is.list()){
+      for(n in 1:length(x)){
+        new_list[[n]] = x[[n]]
+      }
+      new_list[[n+1]] = y
+      return(new_list)
+    }
+    if(y |> is.list()){
+      for(n in 1:length(y)){
+        new_list[[n]] = y[[n]]
+      }
+      new_list[[n+1]] = x
+      return(new_list)
+    }
+    return(list(x,y))
+  }
+  
+  # Lendo a imagem
+  path <- paste0(name, ".jpg")
+  img <- readJPEG(path)
+  
+  # Convertendo a imagem para preto e branco
+  if (length(dim(img)) > 2) {
+    img <- 0.2989 * img[, , 1] + 0.5870 * img[, , 2] + 0.1140 * img[, , 3]
+  }
+  
+  # Calculando a fatoração SVD
+  print("Calculating SVD...")
+  svd_res <- svd(img)
+  print("SVD Ready")
+  
+  vetor <- c(95, 90, 80, 70, 50, 25, 10, 9:1)
+  lista_imgs <- vector("list", length(vetor))
+  
+  # Multithreading
+  num_cores <- detectCores()
+  cl <- makeCluster(num_cores)
+  registerDoParallel(cl)
+  clusterExport(cl, c("img", "svd_res"), envir = environment())
+  
+  # Aplicando a compressão para a imagem em vários níveis: 95, 90, 80, 70, etc...
+  lista = foreach(n = vetor, .combine = 'my_list') %dopar% {
+    scale <- n / 100
+    k <- round(scale * length(svd_res$d))
+    
+    # Trucando a matrizes diagonal do SVD
+    svd_res$d[(k+1):length(svd_res$d)] <- 0
+    
+    # Reconstruindo a imagem comprimida usando o SVD truncado 
+    compressed_img <- svd_res$u %*% diag(svd_res$d) %*% t(svd_res$v)
+  
+    compressed_img
+  }
+  
+  # Parando o multithreading
+  stopCluster(cl)
+  registerDoSEQ()
+  
+  # Salvando as imagens
+  for(n in 1:length(lista)){
+    nome <- paste0("Imagens/", name,"/Comp", name, vetor[n], ".jpg")
+    writeJPEG(lista[[n]], nome)
+  }
+  
+  return("Salvo")
+}
+```
+
+```{r}
+get_comp_col <- function(name) {
+  # Criei uma função para o output do multithreading ser uma lista facil de trabalhar
+  my_list = function(x, y) {
+    new_list = list()
+    if (x |> is.list()) {
+      for (n in 1:length(x)) {
+        new_list[[n]] = x[[n]]
+      }
+      new_list[[n + 1]] = y
+      return(new_list)
+    }
+    if (y |> is.list()) {
+      for (n in 1:length(y)) {
+        new_list[[n]] = y[[n]]
+      }
+      new_list[[n + 1]] = x
+      return(new_list)
+    }
+    return(list(x, y))
+  }
+  
+  # Lendo a imagem
+  path <- paste0(name, ".jpg")
+  img <- readJPEG(path)
+  
+  
+  # Calculando a fatoração SVD
+  print("Calculating SVD...")
+  
+  svd_res <- list()
+  for (channel in 1:3) {
+    channel_img <- img[, , channel]
+    svd_res[[channel]] <- svd(channel_img)
+  }
+  
+  print("SVD Ready")
+  
+  vetor <- c(95, 90, 80, 70, 50, 25, 10, 9:1)
+  lista_imgs <- vector("list", length(vetor))
+  
+  # Multithreading
+  num_cores <- detectCores()
+  cl <- makeCluster(num_cores)
+  registerDoParallel(cl)
+  clusterExport(cl, c("img", "svd_res"), envir = environment())
+  
+  # Aplicando a compressão para a imagem em vários níveis: 95, 90, 80, 70, etc...
+  lista <- foreach(n = vetor, .combine = 'my_list') %dopar% {
+    scale <- n / 100
+    k <- round(scale * min(sapply(svd_res, function(x) length(x$d))))
+    
+    # Truncate the singular value matrices for each channel
+    for (channel in 1:3) {
+      svd_res[[channel]]$d[(k + 1):length(svd_res[[channel]]$d)] <- 0
+    }
+    
+    # Reconstruct the compressed image using the truncated SVD for each channel
+    compressed_img <- array(0, dim = dim(img))
+    for (channel in 1:3) {
+      compressed_img[, , channel] <- svd_res[[channel]]$u %*% diag(svd_res[[channel]]$d) %*% t(svd_res[[channel]]$v)
+    }
+    
+    compressed_img
+  }
+  
+  # Parando o multithreading
+  stopCluster(cl)
+  registerDoSEQ()
+  
+  # Salvando as imagens
+  for (n in 1:length(lista)) {
+    nome <- paste0("Imagens/", name, "Colorido/Comp", name, vetor[n], ".jpg")
+    writeJPEG(lista[[n]], nome)
+  }
+  
+  return("Salvo")
+}
+```
+
+```{r}
+get_comp_bw("darksouls")
+```
+
+```{r}
+bw_2 <- function(name) {
+  my_list <- function(x, y) {
+    new_list <- list()
+    if (is.list(x)) {
+      for (n in 1:length(x)) {
+        new_list[[n]] <- x[[n]]
+      }
+      new_list[[n+1]] <- y
+      return(new_list)
+    }
+    if (is.list(y)) {
+      for (n in 1:length(y)) {
+        new_list[[n]] <- y[[n]]
+      }
+      new_list[[n+1]] <- x
+      return(new_list)
+    }
+    return(list(x, y))
+  }
+  
+  path <- paste0(name, ".jpg")
+  img <- readJPEG(path)
+  
+  if (length(dim(img)) > 2) {
+    img <- 0.2989 * img[, , 1] + 0.5870 * img[, , 2] + 0.1140 * img[, , 3]
+  }
+  
+  svd_res <- svd(img)
+  
+  vetor <- c(95, 90, 80, 70, 50, 25, 10, 9:1)
+  lista_imgs <- vector("list", length(vetor))
+  
+  lista <- vector("list", length(vetor))
+  for (n in 1:length(vetor)) {
+    scale <- vetor[n] / 100
+    k <- round(scale * length(svd_res$d))
+    
+    svd_res$d[(k + 1):length(svd_res$d)] <- 0
+    
+    compressed_img <- svd_res$u %*% diag(svd_res$d) %*% t(svd_res$v)
+  
+    lista[[n]] <- compressed_img
+  }
+  
+  for (n in 1:length(lista)) {
+    nome <- paste0("Imagens/", name, "/Comp", name, vetor[n], ".jpg")
+    writeJPEG(lista[[n]], nome)
+  }
+  
+  return(lista)
+}
+
+```
+
+```{r}
+library(microbenchmark)
+
+microbenchmark(get_comp_bw("Voyager"), bw_2("Voyager"), times = 2)
+```
+
+
+```{r}
+library(ggplot2)
+plot_image_sizes <- function(image_paths) {
+  sizes <- c()
+  labels <- c()
+
+  # Iterar sobre cada caminho de imagem
+  for (path in image_paths) {
+    # Obter o tamanho do arquivo em bytes
+    file_size <- file.info(path)$size
+
+    # Adicionar o tamanho e o rótulo à lista
+    sizes <- c(sizes, file_size)
+    labels <- c(labels, basename(path))
+  }
+  
+  dados = data.frame(sizes = sizes, labels = labels)
+  ggplot(dados, aes(x = 1:length(labels), y = sizes))+
+    geom_line(linewidth = 2)+
+    theme_classic()+ 
+    scale_x_reverse(breaks = seq(0, 95, by = 5))+
+    labs(x = "Qualidade da Imagem", y = "Tamanho em KBs")
+
+}
+
+plot_image_sizes(paste0("Imagens/Hubble1/CompHubble", 1:95, ".jpg"))
+```
+
+
+
+
